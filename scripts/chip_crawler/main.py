@@ -3,6 +3,7 @@
 每日筹码数据采集脚本
 数据源：akshare stock_cyq_em（东方财富-筹码分布）
 """
+import os
 import json
 import time
 import logging
@@ -15,8 +16,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# stocks.json 与本脚本放在同一目录下，用脚本自身位置定位，
+# 不依赖运行时的工作目录（避免在 GitHub Actions 里因 cwd 是仓库根目录而找不到文件）
+DEFAULT_STOCKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stocks.json")
 
-def load_stock_list(path: str = "stocks.json") -> list:
+
+def load_stock_list(path: str = DEFAULT_STOCKS_PATH) -> list:
     """从共享配置文件读取股票列表，三个采集脚本共用同一份"""
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
