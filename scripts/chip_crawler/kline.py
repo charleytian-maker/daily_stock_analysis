@@ -1,14 +1,12 @@
-# kline.py
+# fund_flow.py
 """
-每日K线及技术指标采集脚本
-数据源：akshare stock_zh_a_hist（东方财富-A股历史行情）
-技术指标（MA5/MA10/MA20、MACD）在本地用 pandas 计算，无需额外依赖
+每日个股资金流采集脚本
+数据源：akshare stock_individual_fund_flow（东方财富-个股资金流向）
 """
+import os
 import json
 import time
 import logging
-from datetime import datetime, timedelta
-
 import akshare as ak
 import pandas as pd
 
@@ -18,8 +16,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+DEFAULT_STOCKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stocks.json")
 
-def load_stock_list(path: str = "stocks.json") -> list:
+
+def load_stock_list(path: str = DEFAULT_STOCKS_PATH) -> list:
     """从共享配置文件读取股票列表，三个采集脚本共用同一份"""
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -30,44 +30,44 @@ def load_stock_list(path: str = "stocks.json") -> list:
 STOCK_LIST = load_stock_list()                # 股票列表，来自 stocks.json
 DELAY_SEC = 3.0                               # 每只股票请求间隔（秒）
 MAX_RETRY = 3                                 # 最大重试次数
-LOOKBACK_DAYS = 200                           # 拉取最近多少天的K线（保证MA20/MACD有足够历史预热）
-ADJUST = "qfq"                                # 复权方式：qfq前复权 / hfq后复权 / "" 不复权
-DETAIL_FILE = "kline_detail.csv"              # K线+技术指标历史明细
-SUMMARY_FILE = "kline_summary.csv"            # 个股最新一日汇总指标
+DETAIL_FILE = "fundflow_detail.csv"           # 资金流历史明细（近100个交易日）
+SUMMARY_FILE = "fundflow_summary.csv"         # 个股最新一日汇总指标
 # =============================================================
 
 COLUMN_MAP = {
     "日期": "date",
-    "开盘": "open",
-    "收盘": "close",
-    "最高": "high",
-    "最低": "low",
-    "成交量": "volume",
-    "成交额": "amount",
-    "振幅": "amplitude",
+    "收盘价": "close",
     "涨跌幅": "pct_change",
-    "涨跌额": "change_amount",
-    "换手率": "turnover_rate",
+    "主力净流入-净额": "main_net_inflow",
+    "主力净流入-净占比": "main_net_inflow_rate",
+    "超大单净流入-净额": "xlarge_net_inflow",
+    "超大单净流入-净占比": "xlarge_net_inflow_rate",
+    "大单净流入-净额": "large_net_inflow",
+    "大单净流入-净占比": "large_net_inflow_rate",
+    "中单净流入-净额": "mid_net_inflow",
+    "中单净流入-净占比": "mid_net_inflow_rate",
+    "小单净流入-净额": "small_net_inflow",
+    "小单净流入-净占比": "small_net_inflow_rate",
 }
 
 
-def get_date_range():
-    end_date = datetime.today()
-    start_date = end_date - timedelta(days=LOOKBACK_DAYS)
-    return start_date.strftime("%Y%m%d"), end_date.strftime("%Y%m%d")
+def infer_market(code: str) -> str:
+    """根据股票代码前缀推断交易所：沪/深/北"""
+    if code.startswith("6"):
+        return "sh"
+    if code.startswith(("0", "3")):
+        return "sz"
+    if code.startswith(("4", "8", "9")):
+        return "bj"
+    raise ValueError(f"无法识别股票代码 {code} 所属市场")
 
 
-def fetch_kline(code: str, start_date: str, end_date: str) -> pd.DataFrame:
-    """抓取单只股票的历史K线数据，失败时重试"""
+def fetch_fund_flow(code: str) -> pd.DataFrame:
+    """抓取单只股票的资金流历史数据，失败时重试"""
+    market = infer_market(code)
     for attempt in range(1, MAX_RETRY + 1):
         try:
-            df = ak.stock_zh_a_hist(
-                symbol=code,
-                period="daily",
-                start_date=start_date,
-                end_date=end_date,
-                adjust=ADJUST,
-            )
+            df = ak.stock_individual_fund_flow(stock=code, market=market)
             if df is None or df.empty:
                 raise ValueError("接口返回空数据")
 
@@ -83,60 +83,37 @@ def fetch_kline(code: str, start_date: str, end_date: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
-def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """计算均线和MACD，不依赖ta-lib等第三方库"""
-    df = df.sort_values("date").reset_index(drop=True)
-
-    df["ma5"] = df["close"].rolling(5).mean()
-    df["ma10"] = df["close"].rolling(10).mean()
-    df["ma20"] = df["close"].rolling(20).mean()
-
-    ema12 = df["close"].ewm(span=12, adjust=False).mean()
-    ema26 = df["close"].ewm(span=26, adjust=False).mean()
-    df["dif"] = ema12 - ema26
-    df["dea"] = df["dif"].ewm(span=9, adjust=False).mean()
-    df["macd"] = (df["dif"] - df["dea"]) * 2
-
-    return df
-
-
 def build_summary(df: pd.DataFrame) -> dict:
-    """取最新一天的K线和技术指标作为汇总"""
+    """取最新一天的资金流数据作为汇总"""
     if df.empty:
         return {}
 
-    latest = df.iloc[-1]
+    latest = df.sort_values("date").iloc[-1]
     return {
         "stock_code": latest["stock_code"],
         "date": latest["date"],
         "close": latest["close"],
         "pct_change": latest["pct_change"],
-        "volume": latest["volume"],
-        "turnover_rate": latest["turnover_rate"],
-        "ma5": round(latest["ma5"], 2) if pd.notna(latest["ma5"]) else None,
-        "ma10": round(latest["ma10"], 2) if pd.notna(latest["ma10"]) else None,
-        "ma20": round(latest["ma20"], 2) if pd.notna(latest["ma20"]) else None,
-        "dif": round(latest["dif"], 4),
-        "dea": round(latest["dea"], 4),
-        "macd": round(latest["macd"], 4),
+        "main_net_inflow": latest["main_net_inflow"],
+        "main_net_inflow_rate": latest["main_net_inflow_rate"],
+        "xlarge_net_inflow": latest["xlarge_net_inflow"],
+        "large_net_inflow": latest["large_net_inflow"],
+        "mid_net_inflow": latest["mid_net_inflow"],
+        "small_net_inflow": latest["small_net_inflow"],
     }
 
 
 def main():
-    start_date, end_date = get_date_range()
-    logger.info("抓取区间：%s ~ %s", start_date, end_date)
-
     detail_frames = []
     summary_rows = []
 
     for i, code in enumerate(STOCK_LIST):
         logger.info("正在抓取 %s (%d/%d)", code, i + 1, len(STOCK_LIST))
-        kline_df = fetch_kline(code, start_date, end_date)
+        flow_df = fetch_fund_flow(code)
 
-        if not kline_df.empty:
-            kline_df = add_technical_indicators(kline_df)
-            detail_frames.append(kline_df)
-            summary_rows.append(build_summary(kline_df))
+        if not flow_df.empty:
+            detail_frames.append(flow_df)
+            summary_rows.append(build_summary(flow_df))
         else:
             logger.warning("[%s] 无数据，已跳过", code)
 
@@ -144,7 +121,7 @@ def main():
             time.sleep(DELAY_SEC)
 
     if not detail_frames:
-        logger.error("本次未获取到任何K线数据，退出")
+        logger.error("本次未获取到任何资金流数据，退出")
         return
 
     detail_all = pd.concat(detail_frames, ignore_index=True)
