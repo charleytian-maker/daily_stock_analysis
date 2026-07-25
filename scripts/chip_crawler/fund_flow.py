@@ -3,6 +3,7 @@
 每日个股资金流采集脚本
 数据源：akshare stock_individual_fund_flow（东方财富-个股资金流向）
 """
+import os
 import json
 import time
 import logging
@@ -15,8 +16,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+DEFAULT_STOCKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stocks.json")
 
-def load_stock_list(path: str = "stocks.json") -> list:
+
+def load_stock_list(path: str = DEFAULT_STOCKS_PATH) -> list:
     """从共享配置文件读取股票列表，三个采集脚本共用同一份"""
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
