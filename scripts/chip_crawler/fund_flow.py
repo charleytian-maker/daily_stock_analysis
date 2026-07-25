@@ -1,7 +1,7 @@
-# main.py
+# fund_flow.py
 """
-每日筹码数据采集脚本
-数据源：akshare stock_cyq_em（东方财富-筹码分布）
+每日个股资金流采集脚本
+数据源：akshare stock_individual_fund_flow（东方财富-个股资金流向）
 """
 import os
 import json
@@ -16,8 +16,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# stocks.json 与本脚本放在同一目录下，用脚本自身位置定位，
-# 不依赖运行时的工作目录（避免在 GitHub Actions 里因 cwd 是仓库根目录而找不到文件）
 DEFAULT_STOCKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stocks.json")
 
 
@@ -33,29 +31,44 @@ STOCK_LIST = load_stock_list()                # 股票列表，来自 stocks.jso
 DELAY_SEC = 15.0                              # 每只股票请求间隔（秒），拉长以避免触发东财限流
 MAX_RETRY = 3                                 # 最大重试次数
 RETRY_BASE_SEC = 10.0                         # 重试基础等待时间（秒），实际等待 = RETRY_BASE_SEC * 尝试次数
-DETAIL_FILE = "chip_detail.csv"               # 筹码历史明细（每日一行）
-SUMMARY_FILE = "chip_summary.csv"             # 个股最新一日汇总指标
+DETAIL_FILE = "fundflow_detail.csv"           # 资金流历史明细（近100个交易日）
+SUMMARY_FILE = "fundflow_summary.csv"         # 个股最新一日汇总指标
 # =============================================================
 
-# ak.stock_cyq_em 实际返回的中文列名 -> 英文列名
 COLUMN_MAP = {
     "日期": "date",
-    "获利比例": "profit_rate",
-    "平均成本": "avg_cost",
-    "90成本-低": "cost90_low",
-    "90成本-高": "cost90_high",
-    "90集中度": "chip_concentration_90",
-    "70成本-低": "cost70_low",
-    "70成本-高": "cost70_high",
-    "70集中度": "chip_concentration_70",
+    "收盘价": "close",
+    "涨跌幅": "pct_change",
+    "主力净流入-净额": "main_net_inflow",
+    "主力净流入-净占比": "main_net_inflow_rate",
+    "超大单净流入-净额": "xlarge_net_inflow",
+    "超大单净流入-净占比": "xlarge_net_inflow_rate",
+    "大单净流入-净额": "large_net_inflow",
+    "大单净流入-净占比": "large_net_inflow_rate",
+    "中单净流入-净额": "mid_net_inflow",
+    "中单净流入-净占比": "mid_net_inflow_rate",
+    "小单净流入-净额": "small_net_inflow",
+    "小单净流入-净占比": "small_net_inflow_rate",
 }
 
 
-def fetch_chip_data(code: str) -> pd.DataFrame:
-    """抓取单只股票的筹码分布历史数据，失败时重试"""
+def infer_market(code: str) -> str:
+    """根据股票代码前缀推断交易所：沪/深/北"""
+    if code.startswith("6"):
+        return "sh"
+    if code.startswith(("0", "3")):
+        return "sz"
+    if code.startswith(("4", "8", "9")):
+        return "bj"
+    raise ValueError(f"无法识别股票代码 {code} 所属市场")
+
+
+def fetch_fund_flow(code: str) -> pd.DataFrame:
+    """抓取单只股票的资金流历史数据，失败时重试"""
+    market = infer_market(code)
     for attempt in range(1, MAX_RETRY + 1):
         try:
-            df = ak.stock_cyq_em(symbol=code)
+            df = ak.stock_individual_fund_flow(stock=code, market=market)
             if df is None or df.empty:
                 raise ValueError("接口返回空数据")
 
@@ -65,14 +78,14 @@ def fetch_chip_data(code: str) -> pd.DataFrame:
         except Exception as err:
             logger.warning("[%s] 第 %d/%d 次抓取失败：%s", code, attempt, MAX_RETRY, err)
             if attempt < MAX_RETRY:
-                time.sleep(RETRY_BASE_SEC * attempt)  # 递增等待，降低被限流概率
+                time.sleep(RETRY_BASE_SEC * attempt)
 
     logger.error("[%s] 重试耗尽，跳过该股票", code)
     return pd.DataFrame()
 
 
 def build_summary(df: pd.DataFrame) -> dict:
-    """从历史序列中取最新一天的数据作为汇总指标"""
+    """取最新一天的资金流数据作为汇总"""
     if df.empty:
         return {}
 
@@ -80,14 +93,14 @@ def build_summary(df: pd.DataFrame) -> dict:
     return {
         "stock_code": latest["stock_code"],
         "date": latest["date"],
-        "avg_cost": latest["avg_cost"],
-        "profit_rate": latest["profit_rate"],
-        "chip_concentration_90": latest["chip_concentration_90"],
-        "cost90_low": latest["cost90_low"],
-        "cost90_high": latest["cost90_high"],
-        "chip_concentration_70": latest["chip_concentration_70"],
-        "cost70_low": latest["cost70_low"],
-        "cost70_high": latest["cost70_high"],
+        "close": latest["close"],
+        "pct_change": latest["pct_change"],
+        "main_net_inflow": latest["main_net_inflow"],
+        "main_net_inflow_rate": latest["main_net_inflow_rate"],
+        "xlarge_net_inflow": latest["xlarge_net_inflow"],
+        "large_net_inflow": latest["large_net_inflow"],
+        "mid_net_inflow": latest["mid_net_inflow"],
+        "small_net_inflow": latest["small_net_inflow"],
     }
 
 
@@ -97,11 +110,11 @@ def main():
 
     for i, code in enumerate(STOCK_LIST):
         logger.info("正在抓取 %s (%d/%d)", code, i + 1, len(STOCK_LIST))
-        chip_df = fetch_chip_data(code)
+        flow_df = fetch_fund_flow(code)
 
-        if not chip_df.empty:
-            detail_frames.append(chip_df)
-            summary_rows.append(build_summary(chip_df))
+        if not flow_df.empty:
+            detail_frames.append(flow_df)
+            summary_rows.append(build_summary(flow_df))
         else:
             logger.warning("[%s] 无数据，已跳过", code)
 
@@ -109,7 +122,7 @@ def main():
             time.sleep(DELAY_SEC)
 
     if not detail_frames:
-        logger.error("本次未获取到任何筹码数据，退出")
+        logger.error("本次未获取到任何资金流数据，退出")
         return
 
     detail_all = pd.concat(detail_frames, ignore_index=True)
