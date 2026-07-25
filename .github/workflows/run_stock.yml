@@ -1,27 +1,43 @@
-name: Daily Stock Runner
+# workflow yaml
+name: 每日筹码/资金流/K线数据采集
 on:
+  workflow_dispatch: # 支持手动启动
   schedule:
-    - cron: "30 12 * * MON-FRI"
-  workflow_dispatch:
+    - cron: "30 12 * * 1-5" # UTC 周一至周五12:30 = 北京时间20:30
+
+permissions:
+  contents: write   # 允许 job 里 git push 回仓库
 
 jobs:
-  run-task:
+  run-crawl:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: 配置Python3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: 安装依赖包
         run: |
           python -m pip install --upgrade pip
-          pip install tushare akshare pandas numpy
+          pip install akshare pandas numpy
 
-      - name: Execute main.py
-        env:
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-        run: python main.py
+      - name: 执行筹码采集脚本
+        run: python scripts/chip_crawler/main.py
+      - name: 执行资金流采集脚本
+        run: python scripts/chip_crawler/fund_flow.py
+      - name: 执行K线及技术指标采集脚本
+        run: python scripts/chip_crawler/kline.py
+
+      - name: 自动提交数据文件
+        run: |
+          git config --global user.name "auto-bot"
+          git config --global user.email "bot@github.com"
+          git add chip_detail.csv chip_summary.csv \
+                  fundflow_detail.csv fundflow_summary.csv \
+                  kline_detail.csv kline_summary.csv
+          git commit -m "auto update stock data $(date +%Y-%m-%d)" || echo "无新数据产生"
+          git push
