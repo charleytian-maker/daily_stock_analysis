@@ -30,9 +30,9 @@ def load_stock_list(path: str = DEFAULT_STOCKS_PATH) -> list:
 
 # ===================== 配置区【按需修改】 =====================
 STOCK_LIST = load_stock_list()                # 股票列表，来自 stocks.json
-DELAY_SEC = 15.0                              # 每只股票请求间隔（秒），拉长以避免触发东财限流
+DELAY_SEC = 30.0                              # 每只股票请求间隔（秒）；stock_cyq_em 接口限流比其他接口更严重，单独拉更长
 MAX_RETRY = 3                                 # 最大重试次数
-RETRY_BASE_SEC = 10.0                         # 重试基础等待时间（秒），实际等待 = RETRY_BASE_SEC * 尝试次数
+RETRY_BASE_SEC = 20.0                         # 重试基础等待时间（秒），实际等待 = RETRY_BASE_SEC * 尝试次数
 DETAIL_FILE = "chip_detail.csv"               # 筹码历史明细（每日一行）
 SUMMARY_FILE = "chip_summary.csv"             # 个股最新一日汇总指标
 # =============================================================
