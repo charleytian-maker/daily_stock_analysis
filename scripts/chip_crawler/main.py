@@ -30,8 +30,9 @@ def load_stock_list(path: str = DEFAULT_STOCKS_PATH) -> list:
 
 # ===================== 配置区【按需修改】 =====================
 STOCK_LIST = load_stock_list()                # 股票列表，来自 stocks.json
-DELAY_SEC = 3.0                               # 每只股票请求间隔（秒）
+DELAY_SEC = 15.0                              # 每只股票请求间隔（秒），拉长以避免触发东财限流
 MAX_RETRY = 3                                 # 最大重试次数
+RETRY_BASE_SEC = 10.0                         # 重试基础等待时间（秒），实际等待 = RETRY_BASE_SEC * 尝试次数
 DETAIL_FILE = "chip_detail.csv"               # 筹码历史明细（每日一行）
 SUMMARY_FILE = "chip_summary.csv"             # 个股最新一日汇总指标
 # =============================================================
@@ -64,7 +65,7 @@ def fetch_chip_data(code: str) -> pd.DataFrame:
         except Exception as err:
             logger.warning("[%s] 第 %d/%d 次抓取失败：%s", code, attempt, MAX_RETRY, err)
             if attempt < MAX_RETRY:
-                time.sleep(DELAY_SEC * attempt)
+                time.sleep(RETRY_BASE_SEC * attempt)  # 递增等待，降低被限流概率
 
     logger.error("[%s] 重试耗尽，跳过该股票", code)
     return pd.DataFrame()
