@@ -22,6 +22,7 @@ A股自选股智能分析系统 - 主调度程序
 - 买点偏好：缩量回踩 MA5/MA10 支撑
 """
 from __future__ import annotations
+from stock_extra_data import get_all_extra_info, stock_qualify
 
 import json
 import multiprocessing
