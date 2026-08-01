@@ -47,14 +47,14 @@ jobs:
         run: |
           python3 --version
           python3 -c "
+          import ast
           path = 'src/core/pipeline.py'
           with open(path, encoding='utf-8') as f:
               src = f.read()
-          try:
-              compile(src, path, 'exec')
-              print('compile: 正常')
-          except SyntaxError as e:
-              print('compile: 报错', e.lineno, e)
+          tree = ast.parse(src)
+          print('模块顶层语句列表:')
+          for n in tree.body:
+              print(type(n).__name__, '行', n.lineno, '到', getattr(n, 'end_lineno', '?'))
           "
       - name: 安装依赖
         run: |
