@@ -46,17 +46,17 @@ jobs:
       - name: 诊断pipeline.py编码问题
         run: |
           python3 -c "
-          import sys
-          print('Python版本:', sys.version)
-          import ast
-          with open('src/core/pipeline.py', encoding='utf-8') as f:
-              src = f.read()
-          try:
-              ast.parse(src)
-              print('ast.parse完全正常')
-          except SyntaxError as e:
-              print('ast.parse报错，行号:', e.lineno)
-              print('错误详情:', e)
+          import tokenize
+          with open('src/core/pipeline.py', 'rb') as f:
+              try:
+                  for tok in tokenize.tokenize(f.readline):
+                      pass
+                  print('tokenize完全正常')
+              except tokenize.TokenizeError as e:
+                  print('TokenizeError:', e)
+              except Exception as e:
+                  print('异常类型:', type(e).__name__)
+                  print('异常内容:', e)
           "
       
       - name: 设置 Python 环境
