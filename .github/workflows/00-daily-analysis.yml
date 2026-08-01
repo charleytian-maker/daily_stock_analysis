@@ -45,21 +45,18 @@ jobs:
         uses: actions/checkout@v5
       - name: 诊断pipeline.py编码问题
         run: |
-          find . -name "*.pyc" -o -name "__pycache__" | head -50
-          echo "---sys.path检查---"
           python3 -c "
-          import sys
-          sys.path.insert(0, '.')
-          import importlib.util
-          spec = importlib.util.find_spec('src.core.pipeline')
-          print('模块实际路径:', spec.origin if spec else '未找到')
-          "
-          echo "---直接import测试---"
-          python3 -c "
-          import sys
-          sys.path.insert(0, '.')
-          from src.core import pipeline
-          print('导入成功，实际文件:', pipeline.__file__)
+          import tokenize
+          with open('src/core/pipeline.py', 'rb') as f:
+              try:
+                  for tok in tokenize.tokenize(f.readline):
+                      pass
+                  print('tokenize完全正常')
+              except tokenize.TokenizeError as e:
+                  print('TokenizeError:', e)
+              except Exception as e:
+                  print('异常类型:', type(e).__name__)
+                  print('异常内容:', e)
           "
       
       - name: 设置 Python 环境
