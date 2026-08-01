@@ -52,9 +52,11 @@ jobs:
           with open(path, encoding='utf-8') as f:
               src = f.read()
           tree = ast.parse(src)
-          print('模块顶层语句列表:')
-          for n in tree.body:
-              print(type(n).__name__, '行', n.lineno, '到', getattr(n, 'end_lineno', '?'))
+          cls = tree.body[-1]
+          print('类里的方法列表:')
+          for n in cls.body:
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                  print(n.name, '行', n.lineno, '到', n.end_lineno)
           "
       - name: 安装依赖
         run: |
