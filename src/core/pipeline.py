@@ -3112,24 +3112,21 @@ class StockAnalysisPipeline:
     """
     start_time = time.time()
 
-    #start_time = time.time()
-
     # 使用配置中的股票列表 / 外部传入动态列表二选一，外部传入优先级更高
     if stock_codes is not None:
-        logger.info("已接收外部传入动态股票池，忽略.env内STOCK_LIST配置")
+            logger.info("已接收外部传入动态股票池，忽略.env内STOCK_LIST配置")
     else:
-        logger.info("未传入股票列表，读取.env配置STOCK_LIST静态自选股")
-        self.config.refresh_stock_list()
-        stock_codes = self.config.stock_list
+            logger.info("未传入股票列表，读取.env配置STOCK_LIST静态自选股")
+            self.config.refresh_stock_list()
+            stock_codes = self.config.stock_list
 
     if not stock_codes:
-        logger.error("未配置自选股列表：动态模式请检查传入股票列表；静态模式请在 .env 文件中设置 STOCK_LIST")
-        return []
+            logger.error("未配置自选股列表：动态模式请检查传入股票列表；静态模式请在 .env 文件中设置 STOCK_LIST")
+            return []
 
     logger.info(f"===== 开始分析 {len(stock_codes)} 只股票 =====")
     logger.info(f"股票列表: {', '.join(stock_codes)}")
     logger.info(f"并发数: {self.max_workers}, 模式: {'仅获取数据' if dry_run else '完整分析'}")
-
         # 冻结本轮运行的统一参考时间，避免跨市场收盘边界时同批股票使用不同目标交易日。
         resume_reference_time = current_time or datetime.now(timezone.utc)
         
