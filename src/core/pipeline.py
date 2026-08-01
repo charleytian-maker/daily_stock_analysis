@@ -3110,156 +3110,156 @@ class StockAnalysisPipeline:
     Returns:
         分析结果列表
     """
-    start_time = time.time()
+        start_time = time.time()
 
-# 使用配置中的股票列表 / 外部传入动态列表二选一，外部传入优先级更高
-    if stock_codes is not None:
-        logger.info("已接收外部传入动态股票池，忽略.env内STOCK_LIST配置")
-    else:
-        logger.info("未传入股票列表，读取.env配置STOCK_LIST静态自选股")
-        self.config.refresh_stock_list()
-        stock_codes = self.config.stock_list
-
-    if not stock_codes:
-        logger.error("未配置自选股列表：动态模式请检查传入股票列表；静态模式请在 .env 文件中设置 STOCK_LIST")
-        return []
-
-    logger.info(f"===== 开始分析 {len(stock_codes)} 只股票 =====")
-    logger.info(f"股票列表: {', '.join(stock_codes)}")
-    logger.info(f"并发数: {self.max_workers}, 模式: {'仅获取数据' if dry_run else '完整分析'}")
-    # 冻结本轮运行的统一参考时间，避免跨市场收盘边界时同批股票使用不同目标交易日。
-    resume_reference_time = current_time or datetime.now(timezone.utc)
-    # === 批量预取实时行情（优化：避免每只股票都触发全量拉取）===
-    if len(stock_codes) >= 5:
-        daily_prefetch_count = self.fetcher_manager.prefetch_daily_klines(stock_codes, days=30)
-        if daily_prefetch_count > 0:
-            logger.info(
-                "[prefetch] component=daily_kline_prefetch action=complete "
-                "provider=TickFlowFetcher cached=%d stock_count=%d",
-                daily_prefetch_count,
-                len(stock_codes),
-            )
-
-        prefetch_count = self.fetcher_manager.prefetch_realtime_quotes(stock_codes)
-        if prefetch_count > 0:
-            logger.info(f"已启用批量预取架构：一次拉取全市场数据，{len(stock_codes)} 只股票共享缓存")
-
-        # Issue #455: 预取股票名称，避免并发分析时显示「股票xxxxx」
-        # dry_run 仅做数据拉取，不需要名称预取，避免额外网络开销
-        if not dry_run:
-            self.fetcher_manager.prefetch_stock_names(stock_codes, use_bulk=False)
-
-        # 单股推送模式（#55）：从配置读取
-        single_stock_notify = getattr(self.config, 'single_stock_notify', False)
-        # Issue #119: 从配置读取报告类型
-        report_type_str = getattr(self.config, 'report_type', 'simple').lower()
-        if report_type_str == 'brief':
-            report_type = ReportType.BRIEF
-        elif report_type_str == 'full':
-            report_type = ReportType.FULL
+    # 使用配置中的股票列表 / 外部传入动态列表二选一，外部传入优先级更高
+        if stock_codes is not None:
+            logger.info("已接收外部传入动态股票池，忽略.env内STOCK_LIST配置")
         else:
-            report_type = ReportType.SIMPLE
-        # Issue #128: 从配置读取分析间隔
-        analysis_delay = getattr(self.config, 'analysis_delay', 0)
+            logger.info("未传入股票列表，读取.env配置STOCK_LIST静态自选股")
+            self.config.refresh_stock_list()
+            stock_codes = self.config.stock_list
 
-        if single_stock_notify:
-            logger.info(
-                "已启用单股推送模式：分析仍并发执行，通知改为在结果收集侧串行发送（报告类型: %s）",
-                report_type_str,
-            )
-        
-        results: List[AnalysisResult] = []
-        
-        # 使用线程池并发处理
-        # 注意：max_workers 设置较低（默认3）以避免触发反爬
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # 提交任务
-            future_to_code = {
-                executor.submit(
-                    self.process_single_stock,
-                    code,
-                    skip_analysis=dry_run,
-                    single_stock_notify=False,
-                    report_type=report_type,  # Issue #119: 传递报告类型
-                    analysis_query_id=uuid.uuid4().hex,
-                    current_time=resume_reference_time,
-                ): code
-                for code in stock_codes
-            }
-            
-            # 收集结果
-            for idx, future in enumerate(as_completed(future_to_code)):
-                code = future_to_code[future]
-                try:
-                    result = future.result()
-                    if result and result.success:
-                        results.append(result)
-                        if single_stock_notify and send_notification and not dry_run:
-                            self._send_single_stock_notification(
-                                result,
-                                report_type=report_type,
-                                fallback_code=code,
-                            )
-                    elif result and not result.success:
-                        logger.warning(
-                            f"[{code}] 分析结果标记为失败，不计入汇总: "
-                            f"{result.error_message or '未知原因'}"
-                        )
+        if not stock_codes:
+            logger.error("未配置自选股列表：动态模式请检查传入股票列表；静态模式请在 .env 文件中设置 STOCK_LIST")
+            return []
 
-                    # Issue #128: 分析间隔 - 在个股分析和大盘分析之间添加延迟
-                    if idx < len(stock_codes) - 1 and analysis_delay > 0:
-                        # 注意：此 sleep 发生在“主线程收集 future 的循环”中，
-                        # 并不会阻止线程池中的任务同时发起网络请求。
-                        # 因此它对降低并发请求峰值的效果有限；真正的峰值主要由 max_workers 决定。
-                        # 该行为目前保留（按需求不改逻辑）。
-                        logger.debug(f"等待 {analysis_delay} 秒后继续下一只股票...")
-                        time.sleep(analysis_delay)
-
-                except Exception as e:
-                    logger.error(f"[{code}] 任务执行失败: {e}")
-        
-        # 统计
-        elapsed_time = time.time() - start_time
-        
-        # dry-run 模式下，数据获取成功即视为成功
-        if dry_run:
-            # 检查哪些股票的最新可复用交易日数据已存在
-            success_count = sum(
-                1
-                for code in stock_codes
-                if self.db.has_today_data(
-                    code,
-                    self._resolve_resume_target_date(
-                        code, current_time=resume_reference_time
-                    ),
+        logger.info(f"===== 开始分析 {len(stock_codes)} 只股票 =====")
+        logger.info(f"股票列表: {', '.join(stock_codes)}")
+        logger.info(f"并发数: {self.max_workers}, 模式: {'仅获取数据' if dry_run else '完整分析'}")
+        # 冻结本轮运行的统一参考时间，避免跨市场收盘边界时同批股票使用不同目标交易日。
+        resume_reference_time = current_time or datetime.now(timezone.utc)
+        # === 批量预取实时行情（优化：避免每只股票都触发全量拉取）===
+        if len(stock_codes) >= 5:
+            daily_prefetch_count = self.fetcher_manager.prefetch_daily_klines(stock_codes, days=30)
+            if daily_prefetch_count > 0:
+                logger.info(
+                    "[prefetch] component=daily_kline_prefetch action=complete "
+                    "provider=TickFlowFetcher cached=%d stock_count=%d",
+                    daily_prefetch_count,
+                    len(stock_codes),
                 )
-            )
-            fail_count = len(stock_codes) - success_count
-        else:
-            success_count = len(results)
-            fail_count = len(stock_codes) - success_count
-        
-        logger.info("===== 分析完成 =====")
-        logger.info(f"成功: {success_count}, 失败: {fail_count}, 耗时: {elapsed_time:.2f} 秒")
-        
-        # 保存报告到本地文件（无论是否推送通知都保存）
-        if results and not dry_run:
-            self._save_local_report(results, report_type)
 
-        # 发送通知（单股推送模式下跳过汇总推送，避免重复）
-        if results and send_notification and not dry_run:
-            if single_stock_notify:
-                # 单股推送模式：只保存汇总报告，不再重复推送
-                logger.info("单股推送模式：跳过汇总推送，仅保存报告到本地")
-                self._send_notifications(results, report_type, skip_push=True)
-            elif merge_notification:
-                # 合并模式（Issue #190）：仅保存，不推送，由 main 层合并个股+大盘后统一发送
-                logger.info("合并推送模式：跳过本次推送，将在个股+大盘复盘后统一发送")
-                self._send_notifications(results, report_type, skip_push=True)
+            prefetch_count = self.fetcher_manager.prefetch_realtime_quotes(stock_codes)
+            if prefetch_count > 0:
+                logger.info(f"已启用批量预取架构：一次拉取全市场数据，{len(stock_codes)} 只股票共享缓存")
+
+            # Issue #455: 预取股票名称，避免并发分析时显示「股票xxxxx」
+            # dry_run 仅做数据拉取，不需要名称预取，避免额外网络开销
+            if not dry_run:
+                self.fetcher_manager.prefetch_stock_names(stock_codes, use_bulk=False)
+
+            # 单股推送模式（#55）：从配置读取
+            single_stock_notify = getattr(self.config, 'single_stock_notify', False)
+            # Issue #119: 从配置读取报告类型
+            report_type_str = getattr(self.config, 'report_type', 'simple').lower()
+            if report_type_str == 'brief':
+                report_type = ReportType.BRIEF
+            elif report_type_str == 'full':
+                report_type = ReportType.FULL
             else:
-                self._send_notifications(results, report_type)
-        
-        return results
+                report_type = ReportType.SIMPLE
+            # Issue #128: 从配置读取分析间隔
+            analysis_delay = getattr(self.config, 'analysis_delay', 0)
+
+            if single_stock_notify:
+                logger.info(
+                    "已启用单股推送模式：分析仍并发执行，通知改为在结果收集侧串行发送（报告类型: %s）",
+                    report_type_str,
+                )
+            
+            results: List[AnalysisResult] = []
+            
+            # 使用线程池并发处理
+            # 注意：max_workers 设置较低（默认3）以避免触发反爬
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # 提交任务
+                future_to_code = {
+                    executor.submit(
+                        self.process_single_stock,
+                        code,
+                        skip_analysis=dry_run,
+                        single_stock_notify=False,
+                        report_type=report_type,  # Issue #119: 传递报告类型
+                        analysis_query_id=uuid.uuid4().hex,
+                        current_time=resume_reference_time,
+                    ): code
+                    for code in stock_codes
+                }
+                
+                # 收集结果
+                for idx, future in enumerate(as_completed(future_to_code)):
+                    code = future_to_code[future]
+                    try:
+                        result = future.result()
+                        if result and result.success:
+                            results.append(result)
+                            if single_stock_notify and send_notification and not dry_run:
+                                self._send_single_stock_notification(
+                                    result,
+                                    report_type=report_type,
+                                    fallback_code=code,
+                                )
+                        elif result and not result.success:
+                            logger.warning(
+                                f"[{code}] 分析结果标记为失败，不计入汇总: "
+                                f"{result.error_message or '未知原因'}"
+                            )
+
+                        # Issue #128: 分析间隔 - 在个股分析和大盘分析之间添加延迟
+                        if idx < len(stock_codes) - 1 and analysis_delay > 0:
+                            # 注意：此 sleep 发生在“主线程收集 future 的循环”中，
+                            # 并不会阻止线程池中的任务同时发起网络请求。
+                            # 因此它对降低并发请求峰值的效果有限；真正的峰值主要由 max_workers 决定。
+                            # 该行为目前保留（按需求不改逻辑）。
+                            logger.debug(f"等待 {analysis_delay} 秒后继续下一只股票...")
+                            time.sleep(analysis_delay)
+
+                    except Exception as e:
+                        logger.error(f"[{code}] 任务执行失败: {e}")
+            
+            # 统计
+            elapsed_time = time.time() - start_time
+            
+            # dry-run 模式下，数据获取成功即视为成功
+            if dry_run:
+                # 检查哪些股票的最新可复用交易日数据已存在
+                success_count = sum(
+                    1
+                    for code in stock_codes
+                    if self.db.has_today_data(
+                        code,
+                        self._resolve_resume_target_date(
+                            code, current_time=resume_reference_time
+                        ),
+                    )
+                )
+                fail_count = len(stock_codes) - success_count
+            else:
+                success_count = len(results)
+                fail_count = len(stock_codes) - success_count
+            
+            logger.info("===== 分析完成 =====")
+            logger.info(f"成功: {success_count}, 失败: {fail_count}, 耗时: {elapsed_time:.2f} 秒")
+            
+            # 保存报告到本地文件（无论是否推送通知都保存）
+            if results and not dry_run:
+                self._save_local_report(results, report_type)
+
+            # 发送通知（单股推送模式下跳过汇总推送，避免重复）
+            if results and send_notification and not dry_run:
+                if single_stock_notify:
+                    # 单股推送模式：只保存汇总报告，不再重复推送
+                    logger.info("单股推送模式：跳过汇总推送，仅保存报告到本地")
+                    self._send_notifications(results, report_type, skip_push=True)
+                elif merge_notification:
+                    # 合并模式（Issue #190）：仅保存，不推送，由 main 层合并个股+大盘后统一发送
+                    logger.info("合并推送模式：跳过本次推送，将在个股+大盘复盘后统一发送")
+                    self._send_notifications(results, report_type, skip_push=True)
+                else:
+                    self._send_notifications(results, report_type)
+            
+            return results
 
     def _send_single_stock_notification(
         self,
