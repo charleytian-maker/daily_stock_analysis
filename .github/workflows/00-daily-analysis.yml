@@ -46,19 +46,30 @@ jobs:
       - name: 诊断pipeline.py编码问题
         run: |
           python3 -c "
-          import tokenize
-          with open('src/core/pipeline.py', 'rb') as f:
-              try:
-                  for tok in tokenize.tokenize(f.readline):
-                      pass
-                  print('tokenize完全正常')
-              except tokenize.TokenizeError as e:
-                  print('TokenizeError:', e)
-              except Exception as e:
-                  print('异常类型:', type(e).__name__)
-                  print('异常内容:', e)
+          import os, ast, importlib.util
+          print('当前工作目录:', os.getcwd())
+          path = 'src/core/pipeline.py'
+          print('文件是否存在:', os.path.exists(path))
+          with open(path, encoding='utf-8') as f:
+              src = f.read()
+          print('手动读取-文件长度:', len(src))
+          try:
+              ast.parse(src, filename=path)
+              print('手动ast.parse: 正常')
+          except SyntaxError as e:
+              print('手动ast.parse: 报错', e.lineno, e)
+          print('---开始真实import---')
+          try:
+              spec = importlib.util.spec_from_file_location('pipeline_test', path)
+              module = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(module)
+              print('真实import: 成功')
+          except SyntaxError as e:
+              print('真实import: 报错', e.lineno, e)
+              import linecache
+              for i in range(max(1,e.lineno-3), e.lineno+3):
+                  print(i, repr(linecache.getline(path, i)))
           "
-      
       - name: 设置 Python 环境
         uses: actions/setup-python@v6
         with:
@@ -429,6 +440,18 @@ jobs:
           # 1. Repository/Environment secrets 或 Repository variables（STOCK_LIST_CONFIG）
           # 2. 同名 Environment variables 注入的 runner 环境变量（STOCK_LIST）
           # 3. 最小默认值
+          echo "===运行前ast.parse自检==="
+          python3 -c "
+          import ast
+          with open('src/core/pipeline.py', encoding='utf-8') as f:
+              src = f.read()
+          try:
+              ast.parse(src)
+              print('运行前ast.parse: 正常')
+          except SyntaxError as e:
+              print('运行前ast.parse: 报错，行号', e.lineno, e)
+          "
+          echo "===========================
           if [ -n "${STOCK_LIST_CONFIG:-}" ]; then
             export STOCK_LIST="$STOCK_LIST_CONFIG"
           elif [ -z "${STOCK_LIST:-}" ]; then
