@@ -3096,33 +3096,32 @@ class StockAnalysisPipeline:
     ) -> List[AnalysisResult]:
         """
         运行完整的分析流程
-
-        流程：
-        1. 获取待分析的股票列表
-        2. 使用线程池并发处理
-        3. 收集分析结果
-        4. 发送通知
-
-        Args:
-            stock_codes: 股票代码列表（可选，默认使用配置中的自选股）
-            dry_run: 是否仅获取数据不分析
-            send_notification: 是否发送推送通知
-            merge_notification: 是否合并推送（跳过本次推送，由 main 层合并个股+大盘后统一发送，Issue #190）
-            current_time: 本轮运行冻结的参考时间；为空时在 run 内生成
-
-        Returns:
-            分析结果列表
-        """
-        start_time = time.time()
-        
-        # 使用配置中的股票列表
-        if stock_codes is None:
-            self.config.refresh_stock_list()
-            stock_codes = self.config.stock_list
+    流程：
+    1. 获取待分析的股票列表
+    2. 使用线程池并发处理
+    3. 收集分析结果
+    4. 发送通知
+    Args:
+        stock_codes: 股票代码列表（可选，外部传入动态股票池则优先使用，不再读取.env；不传则读取配置STOCK_LIST）
+        dry_run: 是否仅获取数据不分析
+        send_notification: 是否发送推送通知
+        merge_notification: 是否合并推送（跳过本次推送，由 main 层合并个股+大盘后统一发送，Issue #190）
+        current_time: 本轮运行冻结的参考时间；为空时在 run 内生成
+    Returns:
+        分析结果列表
+    """
+    start_time = time.time()
+    # 使用配置中的股票列表 / 外部传入动态列表二选一，外部传入优先级更高
+    if stock_codes is not None:
+        logger.info("已接收外部传入动态股票池，忽略.env内STOCK_LIST配置")
+    else:
+        logger.info("未传入股票列表，读取.env配置STOCK_LIST静态自选股")
+        self.config.refresh_stock_list()
+        stock_codes = self.config.stock_list
         
         if not stock_codes:
-            logger.error("未配置自选股列表，请在 .env 文件中设置 STOCK_LIST")
-            return []
+        logger.error("未配置自选股列表：动态模式请检查传入股票列表；静态模式请在 .env 文件中设置 STOCK_LIST")
+        return []
         
         logger.info(f"===== 开始分析 {len(stock_codes)} 只股票 =====")
         logger.info(f"股票列表: {', '.join(stock_codes)}")
