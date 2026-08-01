@@ -45,14 +45,21 @@ jobs:
         uses: actions/checkout@v5
       - name: 诊断pipeline.py编码问题
         run: |
+          find . -name "*.pyc" -o -name "__pycache__" | head -50
+          echo "---sys.path检查---"
           python3 -c "
-          with open('src/core/pipeline.py', 'rb') as f:
-              data = f.read()
-          print('文件总字节数:', len(data))
-          print('是否包含单独的CR(\\r)且不跟\\n:', b'\r' in data and data.count(b'\r') != data.count(b'\r\n'))
-          lines = data.split(b'\n')
-          target = lines[3124]
-          print('第3125行原始字节repr:', repr(target))
+          import sys
+          sys.path.insert(0, '.')
+          import importlib.util
+          spec = importlib.util.find_spec('src.core.pipeline')
+          print('模块实际路径:', spec.origin if spec else '未找到')
+          "
+          echo "---直接import测试---"
+          python3 -c "
+          import sys
+          sys.path.insert(0, '.')
+          from src.core import pipeline
+          print('导入成功，实际文件:', pipeline.__file__)
           "
       
       - name: 设置 Python 环境
