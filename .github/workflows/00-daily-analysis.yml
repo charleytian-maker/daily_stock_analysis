@@ -43,24 +43,18 @@ jobs:
       
       - name: 检出代码
         uses: actions/checkout@v5
-      - name: 设置 Python 环境
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-      
       - name: 用3.11诊断pipeline.py
         run: |
           python3 --version
           python3 -c "
-          import ast
-          with open('src/core/pipeline.py', encoding='utf-8') as f:
+          path = 'src/core/pipeline.py'
+          with open(path, encoding='utf-8') as f:
               src = f.read()
           try:
-              ast.parse(src)
-              print('Python3.11下ast.parse: 正常')
+              compile(src, path, 'exec')
+              print('compile: 正常')
           except SyntaxError as e:
-              print('Python3.11下ast.parse: 报错', e.lineno, e)
+              print('compile: 报错', e.lineno, e)
           "
       - name: 安装依赖
         run: |
