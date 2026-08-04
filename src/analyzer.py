@@ -2492,7 +2492,7 @@ class GeminiAnalyzer:
                 self._router = Router(
                     model_list=router_model_list,
                     routing_strategy="simple-shuffle",
-                    num_retries=2,
+                    num_retries=1,
                 )
             except TypeError:
                 logger.debug("Analyzer LLM: Router constructor signature not compatible; fallback to direct mode")
