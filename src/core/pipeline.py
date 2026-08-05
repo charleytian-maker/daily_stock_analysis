@@ -3179,7 +3179,7 @@ class StockAnalysisPipeline:
                         self.process_single_stock,
                         code,
                         skip_analysis=dry_run,
-                        single_stock_notify=False,
+                        single_stock_notify=single_stock_notify,
                         report_type=report_type,  # Issue #119: 传递报告类型
                         analysis_query_id=uuid.uuid4().hex,
                         current_time=resume_reference_time,
