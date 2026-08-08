@@ -104,7 +104,7 @@ jobs:
           LLM_HERMES_API_KEY: ${{ secrets.LLM_HERMES_API_KEY }}
           LLM_HERMES_MODELS: ${{ vars.LLM_HERMES_MODELS || secrets.LLM_HERMES_MODELS }}
           LLM_HERMES_ENABLED: ${{ vars.LLM_HERMES_ENABLED || secrets.LLM_HERMES_ENABLED }}
-
+          ARK_API_KEY: ${{ secrets.ARK_API_KEY }}
           # Gemini AI（主选）
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
