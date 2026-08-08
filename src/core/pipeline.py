@@ -1408,3 +1408,22 @@ class StockAnalysisPipeline:
                 result.market_phase_summary = market_phase_summary
                 result.analysis_context_pack_overview = analysis_context_pack_overview
                 final_action = normalize_decision_action(getattr(result, "action", None))
+                if action_chain_valid and final_action is not None and pipeline_start_action is not None:
+                    if final_action != pipeline_start_action:
+                        capture_pipeline_action_adjustment(
+                            pipeline_adjustments,
+                            source="final",
+                            before=pipeline_start_action,
+                            after=final_action,
+                        )
+                result.pipeline_final_explanation = build_pipeline_final_explanation(
+                    pipeline_adjustments,
+                    start_signal=pipeline_start_signal,
+                    final_action=final_action,
+                )
+                return result
+            return result
+
+        except Exception as e:
+            logger.error("[%s] Agent analysis failed: %s", code, e, exc_info=True)
+            return None
