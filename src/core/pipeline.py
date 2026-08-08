@@ -1408,4 +1408,3 @@ class StockAnalysisPipeline:
                 result.market_phase_summary = market_phase_summary
                 result.analysis_context_pack_overview = analysis_context_pack_overview
                 final_action = normalize_decision_action(getattr(result, "action", None))
-                if
