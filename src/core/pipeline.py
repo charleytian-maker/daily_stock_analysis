@@ -61,7 +61,12 @@ from src.agent.final_explanation import (
     build_pipeline_final_explanation,
     capture_pipeline_action_adjustment,
 )
-from src.formatters import strip_hidden_markdown_metadata
+try:
+    from src.formatters import strip_hidden_markdown_metadata
+except ImportError:
+    def strip_hidden_markdown_metadata(markdown_text: str) -> str:
+        """Fallback when formatters is missing the helper (fork compatibility)."""
+        return markdown_text or ""
 from src.phase_decision_guardrail import apply_phase_decision_guardrails
 from src.services.daily_market_context import (
     DailyMarketContext,
