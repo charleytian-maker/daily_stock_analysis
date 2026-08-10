@@ -12,6 +12,15 @@ from typing import Callable, List, Optional
 
 import markdown2
 
+HIDDEN_MARKDOWN_METADATA_RE = re.compile(
+    r"^\[dsa-[^\]]+\]:\s+#\s+\([^)\n]*\)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+def strip_hidden_markdown_metadata(markdown_text: str) -> str:
+    """Strip hidden internal Markdown metadata lines while preserving normal refs."""
+    return HIDDEN_MARKDOWN_METADATA_RE.sub("", markdown_text or "")
+
 TRUNCATION_SUFFIX = "\n\n...(本段内容过长已截断)"
 PAGE_MARKER_PREFIX = f"\n\n📄"
 PAGE_MARKER_SAFE_BYTES = 16 # "\n\n📄 9999/9999"
