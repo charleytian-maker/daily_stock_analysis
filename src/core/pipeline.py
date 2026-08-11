@@ -154,7 +154,11 @@ class VolcanoArkAnalyzer:
         self.ark_api_key = os.getenv("ARK_API_KEY", "") or getattr(config, "ark_api_key", "") or ""
         self.temperature = getattr(config, "llm_temperature", 0.3)
         self.max_tokens = getattr(config, "llm_max_tokens", 4000)
-
+        
+    def is_available(self):
+        """判断火山方舟 API Key 是否配置有效"""
+        return bool(self.ark_api_key)
+        
     def analyze(
         self,
         enhanced_context: dict,
